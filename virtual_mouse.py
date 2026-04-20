@@ -172,7 +172,11 @@ while True:
             gesture  = "PALM FREEZE"
             rc_start = 0.0
             prev_sy  = None
-            # cursor intentionally NOT moved
+            prev_wx  = None   # reset swipe ref on freeze
+            # BUG FIX: release drag if somehow in drag state
+            if pstate == "DRAG":
+                pyautogui.mouseUp()
+                pstate = "READY"
 
         # ── 2. RIGHT-CLICK DWELL (I+M+R, pinky down) ─
         elif iu and mu and ru and not pu:
@@ -191,6 +195,7 @@ while True:
         elif iu and mu and not ru and not pu:
             gesture  = "SCROLL"
             rc_start = 0.0
+            prev_wx  = None   # reset swipe ref when scrolling
             sy = lm[8].y
             if prev_sy is not None:
                 dy = sy - prev_sy   # +ve = hand moved DOWN
@@ -224,7 +229,7 @@ while True:
         elif iu and not mu:
             rc_start = 0.0
             prev_sy  = None
-            prev_wx  = None
+            prev_wx  = None   # reset swipe ref when in move/click mode
 
             pinching = pd < PINCH_CLOSE
             released = pd > PINCH_OPEN
@@ -276,6 +281,12 @@ while True:
             gesture  = "IDLE"
             rc_start = 0.0
             prev_sy  = None
+            prev_wx  = None   # BUG FIX: reset swipe tracker when not in fist
+            # BUG FIX: if drag is somehow active and hand pose changed, release
+            if pstate == "DRAG":
+                pyautogui.mouseUp()
+                pstate = "READY"
+                flash("DROP (pose changed)", (0,220,130))
 
     else:
         # No hand detected — release drag if active
