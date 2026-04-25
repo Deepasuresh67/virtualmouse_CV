@@ -1,12 +1,15 @@
 """
-cursor_controller.py — Adaptive Smoothing & Mouse Action Dispatch.
+cursor_controller.py — Adaptive Smoothing & Mouse Action Dispatch (v5).
 
-v3 FIXES:
-  - Cursor always moves (zone-independent movement update)
-  - Click fires from gesture engine on RELEASE edge (FSM-driven) — no hold repeat
-  - Scroll uses continuous delta, not confidence gate alone
-  - Scroll throttle reduced to 80ms for more responsive feel
-  - _last_gesture reset on IDLE so next gesture transition always fires
+Handles all 8 gestures:
+  MOVE          — EMA-smoothed cursor tracking (velocity-adaptive alpha)
+  CLICK         — left click (fires on pinch-release edge)
+  DOUBLE_CLICK  — double click (two quick pinches)
+  DRAG/DROP     — mouseDown on DRAG entry, mouseUp on DROP
+  RIGHT_CLICK   — right click (fires when dwell completes in engine)
+  FREEZE        — cursor movement suppressed
+  SCROLL_UP/DN  — native WM_MOUSEWHEEL via ctypes
+  SWIPE_*       — Alt+Left / Alt+Right hotkeys with cooldown
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pyautogui
+import ctypes
 
 import config
 from gesture_engine import Gesture, GestureResult
@@ -33,6 +37,13 @@ def _get_screen_size() -> Tuple[int, int]:
         return pyautogui.size()
 
 
+def _native_scroll(direction: int, notches: int, x: int, y: int) -> None:
+    """Native WM_MOUSEWHEEL — works in ALL Windows apps including browsers."""
+    ctypes.windll.user32.SetCursorPos(x, y)
+    ctypes.windll.user32.mouse_event(
+        0x0800, 0, 0, ctypes.c_int(direction * notches * 120), 0)
+
+
 class CursorController:
     """Translates HandState + GestureResult into actual mouse actions."""
 
@@ -40,38 +51,106 @@ class CursorController:
         self._screen_w, self._screen_h = _get_screen_size()
         self._smooth_x: Optional[float] = None
         self._smooth_y: Optional[float] = None
-        self._last_scroll_time: float   = 0.0
-        self._last_action_gesture: str  = Gesture.IDLE  # tracks fired actions only
 
-        self.current_alpha: float = config.SMOOTH_ALPHA_MAX
-        self.cursor_x: int = 0
-        self.cursor_y: int = 0
+        self._dragging:          bool  = False
+        self._last_scroll_time:  float = 0.0
+        self._last_action:       str   = Gesture.IDLE
+
+        self.current_alpha: float = config.SMOOTH_ALPHA_MIN
+        self.cursor_x:      int   = 0
+        self.cursor_y:      int   = 0
 
     # ── Public entry ──────────────────────────────────────
 
     def process(self, state: HandState, result: GestureResult,
-                zone: str) -> None:
-        """
-        Called every frame.
-        Cursor movement: ALWAYS (zone-independent).
-        Actions: depend on zone + gesture.
-        """
-        # 1. Always move cursor to index fingertip
+                zone: str = "CENTER") -> None:
+        """Called every frame. Dispatches mouse actions based on gesture."""
+        g = result.gesture
+
+        # ── FREEZE: stop cursor, auto-drop if dragging ────
+        if g == Gesture.FREEZE:
+            if self._dragging:
+                pyautogui.mouseUp()
+                self._dragging = False
+                print("[DROP]  freeze")
+            self._last_action = Gesture.FREEZE
+            return  # do NOT move cursor
+
+        # ── Always move cursor (except freeze) ────────────
         self._update_smooth_cursor(state)
 
-        # 2. Dispatch zone actions
-        if zone == "TOP":
-            self._handle_scroll(result)
-        elif zone in ("LEFT", "RIGHT"):
-            self._handle_navigation(result, zone)
-        else:
-            # CENTER / BOTTOM — click actions
-            self._handle_clicks(result)
+        # ── DROP: release mouseDown ───────────────────────
+        if g == Gesture.DROP:
+            if self._dragging:
+                pyautogui.mouseUp()
+                self._dragging = False
+                print(f"[DROP]  @ ({self.cursor_x},{self.cursor_y})")
+            self._last_action = Gesture.IDLE
+            return
+
+        # ── DRAG: press mouseDown on first entry ──────────
+        if g == Gesture.DRAG:
+            if not self._dragging:
+                pyautogui.mouseDown()
+                self._dragging = True
+                print(f"[DRAG]  @ ({self.cursor_x},{self.cursor_y})")
+            self._last_action = Gesture.DRAG
+            return
+
+        # ── SCROLL ────────────────────────────────────────
+        if g in (Gesture.SCROLL_UP, Gesture.SCROLL_DOWN):
+            if result.scroll_dy > 0:
+                self._handle_scroll(result)
+            return
+
+        # ── SWIPE ─────────────────────────────────────────
+        if g == Gesture.SWIPE_BACK:
+            if self._last_action != Gesture.SWIPE_BACK:
+                pyautogui.hotkey("alt", "left")
+                print("[NAV]   Browser Back")
+                self._last_action = Gesture.SWIPE_BACK
+            return
+
+        if g == Gesture.SWIPE_FORWARD:
+            if self._last_action != Gesture.SWIPE_FORWARD:
+                pyautogui.hotkey("alt", "right")
+                print("[NAV]   Browser Forward")
+                self._last_action = Gesture.SWIPE_FORWARD
+            return
+
+        # ── RIGHT_CLICK ───────────────────────────────────
+        if g == Gesture.RIGHT_CLICK:
+            if self._last_action != Gesture.RIGHT_CLICK:
+                pyautogui.rightClick()
+                print(f"[RCLICK] @ ({self.cursor_x},{self.cursor_y})")
+                self._last_action = Gesture.RIGHT_CLICK
+            return
+
+        # ── CLICK ─────────────────────────────────────────
+        if g == Gesture.CLICK:
+            if self._last_action != Gesture.CLICK:
+                pyautogui.click()
+                print(f"[CLICK]  @ ({self.cursor_x},{self.cursor_y})")
+                self._last_action = Gesture.CLICK
+            return
+
+        # ── DOUBLE CLICK ──────────────────────────────────
+        if g == Gesture.DOUBLE_CLICK:
+            if self._last_action != Gesture.DOUBLE_CLICK:
+                pyautogui.doubleClick()
+                print(f"[DBLCLK] @ ({self.cursor_x},{self.cursor_y})")
+                self._last_action = Gesture.DOUBLE_CLICK
+            return
+
+        # ── MOVE / IDLE — reset dedup tracker ─────────────
+        if g in (Gesture.MOVE, Gesture.IDLE, Gesture.RIGHT_DWELL, Gesture.PINCH):
+            if g == Gesture.IDLE:
+                self._last_action = Gesture.IDLE
 
     def get_smooth_position(self) -> Tuple[Optional[float], Optional[float]]:
         return self._smooth_x, self._smooth_y
 
-    # ── Cursor (always runs) ──────────────────────────────
+    # ── Cursor smoothing ──────────────────────────────────
 
     def _update_smooth_cursor(self, state: HandState) -> None:
         alpha = self._compute_alpha(state.index_tip_velocity)
@@ -91,78 +170,21 @@ class CursorController:
         self.cursor_x = sx
         self.cursor_y = sy
 
-    # ── Click / Double / Right-click ──────────────────────
-
-    def _handle_clicks(self, result: GestureResult) -> None:
-        """
-        Fire click on the gesture engine's RELEASE edge.
-        The FSM in gesture_engine emits CLICK/DOUBLE_CLICK for exactly one frame
-        on release, then transitions back to IDLE. We fire on state ENTRY only.
-        """
-        if not result.ready:
-            # Only reset the action tracker on genuine IDLE (hand open)
-            if result.gesture == Gesture.IDLE:
-                self._last_action_gesture = Gesture.IDLE
-            return
-
-        # Prevent re-firing if we see the same action multiple frames
-        if result.gesture == self._last_action_gesture:
-            return
-
-        if result.gesture == Gesture.CLICK:
-            print(f"[CLICK]  @ ({self.cursor_x},{self.cursor_y})")
-            pyautogui.click()
-            self._last_action_gesture = Gesture.CLICK
-
-        elif result.gesture == Gesture.DOUBLE_CLICK:
-            print(f"[DBLCLK] @ ({self.cursor_x},{self.cursor_y})")
-            pyautogui.doubleClick()
-            self._last_action_gesture = Gesture.DOUBLE_CLICK
-
-        elif result.gesture == Gesture.RIGHT_CLICK:
-            print(f"[RCLICK] @ ({self.cursor_x},{self.cursor_y})")
-            pyautogui.rightClick()
-            self._last_action_gesture = Gesture.RIGHT_CLICK
-
     # ── Scroll ────────────────────────────────────────────
 
     def _handle_scroll(self, result: GestureResult) -> None:
-        """
-        Scroll fires on continuous SCROLL_UP / SCROLL_DOWN gestures.
-        We don't gate on result.ready alone — the gesture engine already
-        handles the dead zone. We just throttle the pyautogui call.
-        """
-        if result.gesture not in (Gesture.SCROLL_UP, Gesture.SCROLL_DOWN):
-            return
-
         now = time.time()
-        if now - self._last_scroll_time < 0.08:   # ~12 Hz max scroll rate
+        if now - self._last_scroll_time < config.SCROLL_COOL:
             return
         self._last_scroll_time = now
 
         direction = 1 if result.gesture == Gesture.SCROLL_UP else -1
-        # Scale scroll amount by how far hand moved from reference
-        dy_norm  = max(result.scroll_dy, 0.005)  # at least a tiny amount
-        amount   = max(1, int(dy_norm * 80 * config.SCROLL_SENSITIVITY))
-        amount   = min(amount, 15)  # cap max scroll per tick
+        dy_norm   = max(result.scroll_dy, 0.005)
+        notches   = min(max(1, int(dy_norm * 80 * config.SCROLL_SENSITIVITY)), 15)
 
-        print(f"[SCROLL {'UP' if direction>0 else 'DN'}] dy={result.scroll_dy:.3f} amt={amount}")
-        pyautogui.scroll(direction * amount)
-
-    # ── Navigation ────────────────────────────────────────
-
-    def _handle_navigation(self, result: GestureResult, zone: str) -> None:
-        if not result.ready:
-            return
-        if result.gesture != Gesture.CLICK:
-            return
-        if result.gesture == self._last_action_gesture:
-            return
-        if zone == "LEFT":
-            pyautogui.hotkey("alt", "left")
-        elif zone == "RIGHT":
-            pyautogui.hotkey("alt", "right")
-        self._last_action_gesture = result.gesture
+        print(f"[SCROLL {'UP' if direction > 0 else 'DN'}] "
+              f"dy={result.scroll_dy:.3f} notches={notches}")
+        _native_scroll(direction, notches, self.cursor_x, self.cursor_y)
 
     # ── Helpers ───────────────────────────────────────────
 
@@ -173,13 +195,11 @@ class CursorController:
         t     = v_px / config.SMOOTH_VELOCITY_MAX
         alpha = config.SMOOTH_ALPHA_MIN + t * (config.SMOOTH_ALPHA_MAX -
                                                config.SMOOTH_ALPHA_MIN)
-        return float(np.clip(alpha, config.SMOOTH_ALPHA_MIN,
-                             config.SMOOTH_ALPHA_MAX))
+        return float(np.clip(alpha, config.SMOOTH_ALPHA_MIN, config.SMOOTH_ALPHA_MAX))
 
     def _map_to_screen(self, tip: Tuple[float, float]) -> Tuple[float, float]:
         m  = config.ACTIVE_AREA_MARGIN
         nx = (tip[0] - m) / (1 - 2 * m)
         ny = (tip[1] - m) / (1 - 2 * m)
-        nx = float(np.clip(nx, 0.0, 1.0))
-        ny = float(np.clip(ny, 0.0, 1.0))
-        return nx * self._screen_w, ny * self._screen_h
+        return (float(np.clip(nx, 0.0, 1.0)) * self._screen_w,
+                float(np.clip(ny, 0.0, 1.0)) * self._screen_h)

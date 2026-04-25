@@ -78,12 +78,43 @@ OSCILLATION_STD_THRESHOLD  = 0.012 # std-dev of tip position triggers cancel
 SCROLL_SENSITIVITY         = 5      # increased from 3 for more visible scroll
 # DEAD_ZONE: minimum normalised y-movement before scroll fires (prevents drift)
 SCROLL_DEAD_ZONE           = 0.010  # lowered from 0.015 — fires on smaller movements
+# Anchor-based scroll: min departure from anchor before a tick fires
+SCROLL_DY_MIN              = 0.025  # normalised units from entry anchor
+SCROLL_COOL                = 0.08   # seconds between scroll ticks (~12 Hz)
+
+# ──────────────────────────────────────────────
+#  Pinch Hysteresis (for click / drag detection)
+# ──────────────────────────────────────────────
+PINCH_CLOSE   = 0.060   # thumb-index dist threshold → pinching
+PINCH_OPEN    = 0.095   # thumb-index dist threshold → released
+
+# ──────────────────────────────────────────────
+#  Drag & Drop
+# ──────────────────────────────────────────────
+DRAG_HOLD_S   = 0.50    # seconds of continuous pinch before drag starts
+
+# ──────────────────────────────────────────────
+#  Right-Click Dwell (3-finger hold)
+# ──────────────────────────────────────────────
+RCLICK_HOLD_S = 1.40    # seconds to hold IMR pose for right-click
+
+# ──────────────────────────────────────────────
+#  Click Timing
+# ──────────────────────────────────────────────
+CLICK_COOL    = 0.45    # min seconds between successive click fires
+DBL_WIN       = 0.42    # double-click window in seconds
+
+# ──────────────────────────────────────────────
+#  Swipe Navigate (fist + wrist velocity)
+# ──────────────────────────────────────────────
+SWIPE_VEL     = 0.018   # normalised wrist x-velocity threshold
+SWIPE_COOL    = 1.50    # seconds between swipes (prevents double-fire)
 
 # ──────────────────────────────────────────────
 #  Confidence System
 # ──────────────────────────────────────────────
-GESTURE_STABILITY_FRAMES   = 3     # frames a gesture must be stable before exec (lowered for faster click response)
-CONFIDENCE_THRESHOLD       = 0.80  # fraction of stable frames required
+GESTURE_STABILITY_FRAMES   = 2     # frames a gesture must be stable before exec
+CONFIDENCE_THRESHOLD       = 0.75  # fraction of stable frames required
 
 # ──────────────────────────────────────────────
 #  Visual Feedback / HUD

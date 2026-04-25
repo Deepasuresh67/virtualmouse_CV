@@ -1,12 +1,12 @@
 """
-main.py — Entry point for the Advanced Vision-Based Virtual Mouse System.
+main.py — Modular Pipeline Entry Point for GestureFlow Virtual Mouse.
 
 Pipeline (per frame):
   1. Capture BGR frame from webcam
-  2. Flip & resize
+  2. Flip (mirror)
   3. Run MediaPipe hand tracker → HandState
   4. Detect current spatial zone
-  5. Run gesture engine → GestureResult (with confidence)
+  5. Run gesture engine → GestureResult (full 8-gesture set)
   6. Cursor controller dispatches mouse actions
   7. Zone overlay + skeleton + HUD rendered on frame
   8. Display via OpenCV window
@@ -47,7 +47,7 @@ def main() -> None:
     cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)     # minimise latency
 
     print("═" * 55)
-    print("  Advanced Vision-Based Virtual Mouse  ")
+    print("  GestureFlow Virtual Mouse  —  8 Gestures")
     print("  Press  Q / ESC  to quit.")
     print("═" * 55)
 
@@ -59,7 +59,6 @@ def main() -> None:
             time.sleep(0.01)
             continue
 
-        # Optionally mirror the frame
         if config.FLIP_FRAME:
             frame = cv2.flip(frame, 1)
 
@@ -79,15 +78,15 @@ def main() -> None:
 
             # ── Build debug info for HUD ───────────────────
             debug_info = {
-                "fingers_up"  : state.fingers_up,
-                "pinch_dist"  : state.index_thumb_dist,
-                "pinch_thresh": config.PINCH_DISTANCE_THRESHOLD,
-                "cursor_x"    : controller.cursor_x,
-                "cursor_y"    : controller.cursor_y,
-                "tip_x"       : tip_x,
-                "tip_y"       : tip_y,
-                "zone"        : zone,
-                "scroll_dy"   : result.scroll_dy,
+                "fingers_up" : state.fingers_up,
+                "pinch_dist" : result.pinch_dist,
+                "cursor_x"   : controller.cursor_x,
+                "cursor_y"   : controller.cursor_y,
+                "tip_x"      : tip_x,
+                "tip_y"      : tip_y,
+                "zone"       : zone,
+                "scroll_dy"  : result.scroll_dy,
+                "drag_state" : result.drag_state,
             }
 
             # ── Drawing ────────────────────────────────────
@@ -104,7 +103,7 @@ def main() -> None:
                        zones.current_zone, config.SMOOTH_ALPHA_MIN)
 
         # ── Show frame ─────────────────────────────────────
-        cv2.imshow("Virtual Mouse — Hand Tracking", frame)
+        cv2.imshow("GestureFlow Virtual Mouse  [Q=quit]", frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key in (ord('q'), ord('Q'), 27):   # Q or ESC
@@ -114,7 +113,7 @@ def main() -> None:
     cap.release()
     tracker.release()
     cv2.destroyAllWindows()
-    print("[INFO] Virtual Mouse stopped.")
+    print("[INFO] GestureFlow stopped.")
 
 
 if __name__ == "__main__":

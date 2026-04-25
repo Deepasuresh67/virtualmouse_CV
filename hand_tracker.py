@@ -52,6 +52,9 @@ class HandState:
     middle_thumb_dist: float = 0.0
     # Velocity of index tip (normalised units / second)
     index_tip_velocity: float = 0.0
+    # Wrist position and horizontal velocity (for swipe detection)
+    wrist_x:            float = 0.0
+    wrist_velocity_x:   float = 0.0
     # Timestamp
     timestamp: float = field(default_factory=time.time)
 
@@ -70,6 +73,7 @@ class HandTracker:
             min_tracking_confidence=config.TRACKING_CONFIDENCE,
         )
         self._prev_index_tip: Optional[Tuple[float, float]] = None
+        self._prev_wrist_x:   Optional[float]               = None
         self._prev_time: float = time.time()
 
     # ── Public ───────────────────────────────────────────
@@ -122,7 +126,15 @@ class HandTracker:
         else:
             velocity = 0.0
         self._prev_index_tip = index_tip
-        self._prev_time = now
+
+        # ── Wrist horizontal velocity (for swipe) ────────────
+        wrist_x = landmarks[WRIST][0]
+        if self._prev_wrist_x is not None:
+            wrist_velocity_x = (wrist_x - self._prev_wrist_x) / dt
+        else:
+            wrist_velocity_x = 0.0
+        self._prev_wrist_x = wrist_x
+        self._prev_time    = now
 
         return HandState(
             landmarks=landmarks,
@@ -136,6 +148,8 @@ class HandTracker:
             index_thumb_dist=index_thumb_dist,
             middle_thumb_dist=middle_thumb_dist,
             index_tip_velocity=velocity,
+            wrist_x=wrist_x,
+            wrist_velocity_x=wrist_velocity_x,
             timestamp=now,
         )
 
